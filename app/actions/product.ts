@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@supabase/supabase-js";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -22,6 +23,7 @@ type ProductInput = {
   description: string;
   price: string;
   stock: string;
+  imageUrl?: string;
 };
 
 const MAX_BARCODE_LENGTH = 128;
@@ -36,6 +38,7 @@ function validateProductInput(product: ProductInput) {
   const name = product.name.trim();
   const price = Number(product.price);
   const stock = Number(product.stock);
+  const imageUrl = (product.imageUrl || "").trim();
 
   if (!barcode || barcode.length > MAX_BARCODE_LENGTH) {
     return { error: "Enter a barcode of no more than 128 characters." };
@@ -58,6 +61,10 @@ function validateProductInput(product: ProductInput) {
     return { error: "Brand, category, and description must be 500 characters or fewer." };
   }
 
+  if (imageUrl && (imageUrl.length > 2048 || !/^https?:\/\//.test(imageUrl))) {
+    return { error: "The product image URL must be a valid http(s) link." };
+  }
+
   return {
     data: {
       barcode,
@@ -67,6 +74,7 @@ function validateProductInput(product: ProductInput) {
       description: product.description.trim(),
       price,
       stock,
+      imageUrl: imageUrl || null,
     },
   };
 }
@@ -207,16 +215,94 @@ export async function lookupBarcode(barcode: string) {
   }
 }
 
+export type ProductListItem = {
+  id: string;
+  barcode: string;
+  sku: string | null;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  selling_price: number;
+  stock_quantity: number;
+  image_url: string | null;
+  updated_at: string;
+};
+
+const MAX_LIST_LIMIT = 50;
+
+export async function listProducts(options: { search?: string; category?: string } = {}) {
+  if (!hasValidSupabaseConfig) {
+    return { products: [] as ProductListItem[], categories: [] as string[], error: "Supabase is not configured." };
+  }
+
+  try {
+    let query = supabase!
+      .from("products")
+      .select("id, barcode, sku, name, brand, category, selling_price, stock_quantity, image_url, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(MAX_LIST_LIMIT);
+
+    const search = options.search?.trim();
+    if (search) {
+      const escaped = search.replace(/[%_]/g, char => `\\${char}`);
+      query = query.or(
+        `name.ilike.%${escaped}%,barcode.ilike.%${escaped}%,sku.ilike.%${escaped}%`,
+      );
+    }
+
+    const category = options.category?.trim();
+    if (category) {
+      query = query.eq("category", category);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const { data: categoryRows, error: categoryError } = await supabase!
+      .from("products")
+      .select("category")
+      .not("category", "is", null)
+      .not("category", "eq", "");
+    if (categoryError) throw categoryError;
+
+    const categories = Array.from(
+      new Set((categoryRows ?? []).map(row => row.category).filter(Boolean)),
+    ).sort() as string[];
+
+    return { products: (data ?? []) as ProductListItem[], categories };
+  } catch (error) {
+    console.error("List Error:", error);
+    return {
+      products: [] as ProductListItem[],
+      categories: [] as string[],
+      error: "Failed to load products.",
+    };
+  }
+}
+
 export async function saveProduct(product: ProductInput) {
   try {
     if (!hasValidSupabaseConfig) {
       return { success: false, error: "Supabase is not configured." };
     }
 
+    // Creating a product is the one write in this app, so it's the one
+    // action gated on an actual session rather than just the anon key.
+    // Belt-and-braces with the middleware redirect: this still checks even
+    // if this action were ever called directly.
+    const sessionClient = await createServerSupabaseClient();
+    const {
+      data: { user },
+    } = await sessionClient.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: "You must be signed in to add a product." };
+    }
+
     const validation = validateProductInput(product);
     if ("error" in validation) return { success: false, error: validation.error };
 
-    const { error } = await supabase!
+    const { error } = await sessionClient
       .from("products")
       .insert({
         barcode: validation.data.barcode,
@@ -226,6 +312,9 @@ export async function saveProduct(product: ProductInput) {
         description: validation.data.description,
         selling_price: validation.data.price,
         stock_quantity: validation.data.stock,
+        image_url: validation.data.imageUrl,
+        created_by: user.id,
+        data_source: "admin",
       });
 
     if (error?.code === "23505") {

@@ -1,6 +1,7 @@
 "use client";
 
 import { lookupBarcode, saveProduct } from "@/app/actions/product";
+import { ImagePicker } from "@/components/products/ImagePicker";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
@@ -25,6 +26,8 @@ export default function ProductReviewForm({
   const [brand, setBrand] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageIsAutoRetrieved, setImageIsAutoRetrieved] = useState(false);
 
   useEffect(() => {
     async function fetchData() {
@@ -35,6 +38,8 @@ export default function ProductReviewForm({
       setDescription("");
       setPrice("");
       setStock("");
+      setImageUrl("");
+      setImageIsAutoRetrieved(false);
       const result = await lookupBarcode(barcode);
       setLookupStatus(result.status || "pending");
 
@@ -44,6 +49,10 @@ export default function ProductReviewForm({
       if (result.data?.description) setDescription(result.data.description);
       if (result.data?.selling_price) setPrice(String(result.data.selling_price));
       if (result.data?.stock_quantity) setStock(String(result.data.stock_quantity));
+      if (result.data?.image_url) {
+        setImageUrl(result.data.image_url);
+        setImageIsAutoRetrieved(true);
+      }
 
       setIsLoading(false);
     }
@@ -67,10 +76,11 @@ export default function ProductReviewForm({
       description,
       price,
       stock,
+      imageUrl,
     });
 
     if (result.success) {
-      router.push("/products/new");
+      router.push("/products");
       return;
     }
 
@@ -254,6 +264,22 @@ export default function ProductReviewForm({
                 />
               </div>
             </div>
+          </section>
+
+          <hr className="border-gray-100" />
+
+          <section>
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">
+              Media
+            </h3>
+            <ImagePicker
+              value={imageUrl}
+              onChange={url => {
+                setImageUrl(url);
+                setImageIsAutoRetrieved(false);
+              }}
+              isAutoRetrieved={imageIsAutoRetrieved && imageUrl !== ""}
+            />
           </section>
 
           <hr className="border-gray-100" />

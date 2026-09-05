@@ -9,12 +9,20 @@ export default function HomePage() {
           Ready to manage product lookup and new inventory entries.
         </p>
 
-        <Link
-          href="/products/new"
-          className="mt-8 inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-3 text-white font-medium hover:bg-blue-700 transition-colors"
-        >
-          Add New Product
-        </Link>
+        <div className="mt-8 space-y-3">
+          <Link
+            href="/products"
+            className="flex w-full items-center justify-center rounded-lg bg-gray-900 px-4 py-3 text-white font-medium hover:bg-black transition-colors"
+          >
+            View Products
+          </Link>
+          <Link
+            href="/products/new"
+            className="flex w-full items-center justify-center rounded-lg border border-gray-300 px-4 py-3 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+          >
+            Add New Product
+          </Link>
+        </div>
       </div>
     </main>
   );
