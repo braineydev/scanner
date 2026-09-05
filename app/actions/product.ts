@@ -152,9 +152,21 @@ export async function lookupBarcode(barcode: string) {
 
     const response = await fetch(
       `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(normalizedBarcode)}.json`,
-      { cache: "no-store", signal: AbortSignal.timeout(5000) },
+      {
+        cache: "no-store",
+        signal: AbortSignal.timeout(8000),
+        headers: {
+          // Open Food Facts' API docs ask every client to identify itself;
+          // requests without a real User-Agent can get rate-limited or
+          // blocked at their edge, which looks identical to "the product
+          // isn't there" from here unless we log the status separately.
+          "User-Agent": "ScannerInventoryApp/1.0 (+https://github.com/braineydev/scanner)",
+        },
+      },
     );
-    if (!response.ok) throw new Error("Product lookup service is unavailable.");
+    if (!response.ok) {
+      throw new Error(`Open Food Facts responded with ${response.status}`);
+    }
     const externalData = await response.json();
 
     let openFoodFactsProduct: OnlineProduct | null = null;
@@ -207,7 +219,8 @@ export async function lookupBarcode(barcode: string) {
       data: { barcode: normalizedBarcode },
     };
   } catch (error) {
-    console.error("Lookup Error:", error);
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`Lookup Error for barcode "${barcode}":`, detail);
     return {
       status: "error",
       message: "Failed to retrieve product data",
